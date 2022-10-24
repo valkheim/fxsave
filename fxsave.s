@@ -2,13 +2,21 @@ section .data
   align 64
   regsave times 0x200 db 0x90
 
+  msg db "hello",0xa,0x0
+
 section .text
   global _start
 
 exit_0:
-  xor rdi, rdi
-  mov rax, 60
-  syscall
+  mov eax, 1    ; b8 01 00 00 00
+  mov edi, 1    ; bf 01 00 00 00
+  mov rsi, msg  ; 48 be 00 00 00 00|00 00 00 00
+  mov edx, 7    ; ba 07 00 00 00
+  syscall       ; 0f 05
+
+  xor rdi, rdi  ; 48 31 ff
+  mov rax, 60   ; b8 3c|00 00 00
+  syscall       ; 0f 05
 
 exit_1:
   mov edi, 1    ; bf 01 00 00 00
@@ -17,21 +25,48 @@ exit_1:
 
 _start:
   ; save some code in regsave sections using 128-bits chunks
-  movdqu xmm0, [exit_1]
+  movdqu xmm0, [exit_0 + 0x10 * 0]
+  ; 0x403200be4800000001bf00000001b8
+  ; 0x401000 <exit_0>:      0xb8    0x1     0x0     0x0     0x0     0xbf    0x1   0x0
+  ; 0x401008 <exit_0+8>:    0x0     0x0     0x48    0xbe    0x0     0x32    0x40  0x0
+  movdqu xmm1, [exit_0 + 0x10 * 1]
+  ; 0x3cb8ff3148050f00000007ba00000000
+  ; 0x401010 <exit_0+16>:   0x0     0x0     0x0     0x0     0xba    0x7     0x0   0x0
+  ; 0x401018 <exit_0+24>:   0x0     0xf     0x5     0x48    0x31    0xff    0xb8  0x3c
+  movdqu xmm2, [exit_0 + 0x10 * 2]
+  ; 0xf0000003cb800000001bf050f000000
+  ; 0x401020 <exit_0+32>:   0x0     0x0     0x0     0xf     0x5     0xbf    0x1   0x0
+  ; 0x401028 <exit_1+3>:    0x0     0x0     0xb8    0x3c    0x0     0x0     0x0   0xf
 
   ; copy data to the ordered regsave area
   fxsave [regsave]
+  ; x/48b 0x403000+0xa0
+  ; 0x4030a0:       0xb8    0x1     0x0     0x0     0x0     0xbf    0x1     0x0
+  ; 0x4030a8:       0x0     0x0     0x48    0xbe    0x0     0x32    0x40    0x0
+  ; 0x4030b0:       0x0     0x0     0x0     0x0     0xba    0x7     0x0     0x0
+  ; 0x4030b8:       0x0     0xf     0x5     0x48    0x31    0xff    0xb8    0x3c
+  ; 0x4030c0:       0x0     0x0     0x0     0xf     0x5     0xbf    0x1     0x0
+  ; 0x4030c8:       0x0     0x0     0xb8    0x3c    0x0     0x0     0x0     0xf
 
   ; modify registers
   xorps xmm0, xmm0
+  xorps xmm1, xmm1
+  xorps xmm2, xmm2
 
   ; restore registers
   fxrstor  [regsave]
 
-  ; copy regsave ordered area somewhere
-  ; here we only copy xmm0 on top of the stack
+  ; ; exec on the regsave data
+  ; mov rax, regsave
+  ; add rax, 0xa0 ; xmm0 offset
+  ; push rax
+  ; ret
+
+  ; exec on the stack using registers
+  sub     rsp, 0x10
+  movdqu  [rsp], xmm2
+  sub     rsp, 0x10
+  movdqu  [rsp], xmm1
   sub     rsp, 0x10
   movdqu  [rsp], xmm0
-
-  ; we execute the copied regsave area
   jmp rsp
